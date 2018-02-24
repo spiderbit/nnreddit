@@ -466,16 +466,33 @@ proper citation marks."
       (if (looking-back "> ")
           (delete-region (line-beginning-position) (point))))))
 
+(defun nnreddit-get-root-id (data)
+  "docstring"
+  (let* ((parent-id (plist-get data :parent_id))
+	 (reddit-id (plist-get data :id)))
+    (if (not parent-id) reddit-id
+      (nnreddit-get-root-id
+       (catch 'key
+	 (maphash
+	  (lambda (k v)
+	    (if (equal parent-id (plist-get (cadr v) :id))
+		(throw 'key (cadr v))))
+	  (nnreddit-get-subreddit-articles)))))))
+
 (defun nnreddit-request-article (id &optional group server buffer)
   (nnreddit-possibly-change-group group)
   (with-current-buffer (or buffer nntp-server-buffer)
     (erase-buffer)
     (let ((value (gethash id (nnreddit-get-subreddit-articles))))
       (when value
-        (let ((header (car value))
-              (data (cadr value))
-              (type (caddr value)))
-
+        (let* ((header (car value))
+	       (data (cadr value))
+	       (root-id (nnreddit-get-root-id data))
+	       (type (caddr value))
+	       (subreddit
+		(string-remove-prefix
+		 "nnreddit:"
+		 gnus-newsgroup-name)))
           (let ((nnreddit-num-comments-in-subject nil))
             (setq header (nnreddit-alter-header header data type)))
 
@@ -484,7 +501,7 @@ proper citation marks."
            "From: " (or (mail-header-from header) "(nobody)") "\n"
            (if (or nnreddit-always-show-subject
                    (not nnreddit-subjects-from-body))
-               (concat "Subject: " (or (mail-header-subject header) "(none)") "\n")
+	     "Subject: "(or (mail-header-subject header) "(none)") "\n"
              "")
            "Date: " (or (mail-header-date header) "") "\n"
            "Message-ID: " (or (mail-header-id header) (nnmail-message-id)) "\n"
@@ -497,6 +514,9 @@ proper citation marks."
                       )
                (format "Score: %d\n" score)
                ""))
+	   (format "\n<a href=https://reddit.com/r/%s/comments/%s>open in browser</a><br/> "
+		   subreddit
+		   root-id)
            "\n")
 
           (let ((text (plist-get data :text)))
